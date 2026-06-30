@@ -1,0 +1,38 @@
+# Виртуальное окружение
+venv/
+env/
+.venv/
+
+# Файлы с токенами и секретами
+.env
+.env.local
+.env.*.local
+
+# Кэш Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Логи
+*.log
+
+# База данных (SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
+# Файлы IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Файлы OS
+.DS_Store
+Thumbs.db
+
+# Другие
+*.tmp
+*.temp
