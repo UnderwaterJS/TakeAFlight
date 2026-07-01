@@ -3,7 +3,7 @@ from datetime import datetime
 from symtable import Class
 from typing import Optional, List
 
-from TakeAFlight.models import SearchCriteria
+from models import SearchCriteria
 from sqlalchemy import (Column, Integer, String, DateTime, Boolean, ForeignKey, Float, Text, JSON)
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base, relationship, selectinload
@@ -26,7 +26,8 @@ class UserORM(Base):
     registered_at = Column(DateTime, default=datetime.now())
     is_active = Column(Boolean, default=True)
 
-    subscriptions = relationship("SubscriptionORM", back_populates="user", cascade="all, delete=orphan")
+    subscriptions = relationship("SubscriptionORM", back_populates="user", cascade="all, delete-orphan")
+    search_criteria = relationship("SearchCriteriaORM", back_populates="user", cascade="all, delete-orphan")
 
 class SearchCriteriaORM(Base):
     __tablename__ = "search_criteria"
@@ -75,7 +76,7 @@ class PriceHistoryORM(Base):
 engine = create_async_engine(
     settings.database_url,
     echo=False,
-    expire_on_commit=True
+    future=True
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -93,7 +94,7 @@ async def init_db():
 async def create_user(telegram_id: int,
                       username: str = None,
                       first_name: str = None,
-                      last_name: str = None) -> UserORM
+                      last_name: str = None) -> UserORM:
     async with AsyncSessionLocal() as session:
         user = UserORM(
             telegram_id=telegram_id,
@@ -218,3 +219,38 @@ async def save_price_history(tour_identity: str, price: int):
         )
         session.add(history)
         await session.commit()
+
+async def find_subscription_by_user_and_criteria(user_id: int, criteria_id: int) -> Optional[SubscriptionORM]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(SubscriptionORM)
+            .where(
+                SubscriptionORM.user_id == user_id,
+                SubscriptionORM.criteria_id == criteria_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+
+async def deactivate_subscription_by_criteria(user_id: int, criteria_id: int) -> bool:
+    async with AsyncSessionLocal() as session:
+        sub = await find_subscription_by_user_and_criteria(user_id, criteria_id)
+        if not sub:
+            return False
+        sub.is_active = False
+        await session.commit()
+        return True
+
+
+async def deactivate_all_user_subscriptions(user_id: int) -> int:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            update(SubscriptionORM)
+            .where(
+                SubscriptionORM.user_id == user_id,
+                SubscriptionORM.is_active == True
+            )
+            .values(is_active=False)
+        )
+        await session.commit()
+        return result.rowcount
