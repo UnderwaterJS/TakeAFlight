@@ -10,6 +10,7 @@ from repository import init_db
 from travelata_api import TravelataAPIClient
 from price_monitor import PriceMonitor
 from handlers import start_router, search_router, subscribe_router, callback_router
+from handlers.search import set_travelata_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,15 +32,14 @@ async def main():
     dp.include_router(subscribe_router)
     dp.include_router(callback_router)
 
-    async with TravelataAPIClient(
-        login=settings.travelata_login,
-        password=settings.travelata_password
-        ) as api_client:
-        monitor = PriceMonitor(bot, api_client)
-        asyncio.create_task(monitor.run())
+    client = TravelataAPIClient(settings.travelata_login, settings.travelata_password)
+    set_travelata_client(client)
 
-        logger.info("Бот запущен, начинаем поллинг...")
-        await dp.start_polling(bot)
+    monitor = PriceMonitor(bot, client)
+    asyncio.create_task(monitor.run())
+
+    logger.info("Бот запущен, начинаем поллинг...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     try:

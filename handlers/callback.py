@@ -11,18 +11,15 @@ from models import Tour, SearchCriteria
 
 router = Router()
 
-# Обработчик кнопки "Подписаться на тур"
 @router.callback_query(F.data.startswith("subscribe_tour_"))
-async def subscribe_to_tour(callback: CallbackQuery):
-    tour_identity = callback.data.split("_")[2]  # формат: subscribe_tour_<tour_identity>
-    user = await get_or_create_user(callback.from_user.id)
-    
-    # Здесь нужно создать подписку на конкретный тур.
-    # Для этого мы можем сохранить критерии поиска, которые привели к этому туру,
-    # или сохранить сам tour_identity как отдельную подписку.
-    # В нашей модели Subscription привязана к SearchCriteria, но мы можем расширить её позже.
-    await callback.answer("Вы подписались на уведомления по этому туру! Мы сообщим, если цена снизится.")
-    await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки
+async def subscribe_tour(callback: CallbackQuery):
+    tour_identity = callback.data.split("_")[-1]
+    await callback.answer(f"Подписка на тур {tour_identity} пока не реализована.", show_alert=True)
+
+@router.callback_query(F.data.startswith("subscribe_criteria_"))
+async def subscribe_criteria(callback: CallbackQuery):
+    criteria_id = int(callback.data.split("_")[-1])
+    await callback.answer(f"Подписка на критерии #{criteria_id} пока не реализована.", show_alert=True)
 
 # Кнопка "Показать ещё" – загружает следующую страницу результатов
 @router.callback_query(F.data == "show_more")

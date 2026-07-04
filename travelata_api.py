@@ -32,12 +32,9 @@ class TravelataAPIClient:
 
         self._session: Optional[aiohttp.ClientSession] = None
 
-    async def __aenter__(self):
-        """Поддержка async with"""
         self._session = aiohttp.ClientSession(
             timeout=ClientTimeout(total=self.timeout)
         )
-        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Закрытие сессии при выходе из контекста"""
