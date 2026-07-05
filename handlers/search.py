@@ -9,7 +9,7 @@ from models import SearchCriteria, Tour
 from travelata_api import TravelataAPIClient
 from search_engine import filter_by_match_threshold
 from repository import create_search_criteria
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
@@ -42,30 +42,69 @@ async def cmd_search(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         "🔍 Давайте найдём идеальный тур!\n"
-        "Сначала укажите ID страны.\n"
-        "(Можно получить список стран через /countries, но пока введите ID, например 92 для Турции)"
+        "Введите название страны (например, Турция, Египет)."
     )
     await state.set_state(SearchStates.waiting_for_country)
 
+# Пропуск (для опциональных полей)
+@router.message(Command("skip"))
+async def cmd_skip(message: Message, state: FSMContext):
+    # Текущее состояние определяет, что пропускаем
+    current_state = await state.get_state()
+    if current_state == SearchStates.waiting_for_adults.state:
+        await state.update_data(adults=2)
+        await message.answer("Принято (2 взрослых). Теперь укажите количество детей (0 по умолчанию) или /skip.")
+        await state.set_state(SearchStates.waiting_for_kids)
+    elif current_state == SearchStates.waiting_for_checkout_date.state:
+        await message.answer("Хорошо, укажите количество ночей вручную (число или диапазон).")
+        await state.set_state(SearchStates.waiting_for_nights)
+    elif current_state == SearchStates.waiting_for_kids.state:
+        await state.update_data(kids=0)
+        await message.answer("Принято (0 детей). Теперь укажите количество младенцев (0) или /skip.")
+        await state.set_state(SearchStates.waiting_for_infants)
+    elif current_state == SearchStates.waiting_for_infants.state:
+        await state.update_data(infants=0)
+        await message.answer("Принято. Теперь введите количество звезд отеля диапазоном или через запятую, например 4-5 / 3, 4 или /skip.")
+        await state.set_state(SearchStates.waiting_for_hotel_categories)
+    elif current_state == SearchStates.waiting_for_hotel_categories.state:
+        await state.update_data(hotel_categories=[])
+        await message.answer("Принято. Введите максимальную цену в рублях или /skip.")
+        await state.set_state(SearchStates.waiting_for_max_price)
+    elif current_state == SearchStates.waiting_for_max_price.state:
+        await state.update_data(max_price=None)
+        data = await state.get_data()
+        await show_confirmation(message, data)
+        await state.set_state(SearchStates.waiting_for_confirmation)
+    else:
+        await message.answer("Пропуск недоступен на этом шаге.")
+
 @router.message(StateFilter(SearchStates.waiting_for_country))
 async def process_country(message: Message, state: FSMContext):
+    text = message.text.strip()
+    country_id = None
     try:
-        country_id = int(message.text.strip())
+        country_id = int(text)
     except ValueError:
-        await message.answer("Пожалуйста, введите числовой ID страны.")
+        country_id = _COUNTRY_NAME_TO_ID.get(text.lower())
+    if country_id is None:
+        await message.answer("Не удалось распознать страну. Введите название (например, Турция) или ID.")
         return
     await state.update_data(country_id=country_id)
-    await message.answer("Теперь укажите ID города вылета (например, 2 – Москва).")
+    await message.answer("Теперь укажите город вылета (название, например, Москва или Казань).")
     await state.set_state(SearchStates.waiting_for_departure_city)
 
 @router.message(StateFilter(SearchStates.waiting_for_departure_city))
 async def process_departure_city(message: Message, state: FSMContext):
+    text = message.text.strip()
+    city_id = None
     try:
-        departure_city = int(message.text.strip())
+        city_id = int(text)
     except ValueError:
-        await message.answer("Пожалуйста, введите число ID города.")
+        city_id = _CITY_NAME_TO_ID.get(text.lower())
+    if city_id is None:
+        await message.answer("Не удалось распознать город. Введите название (например, Москва) или ID.")
         return
-    await state.update_data(departure_city=departure_city)
+    await state.update_data(departure_city=city_id)
     await message.answer("Введите дату заезда в формате ГГГГ-ММ-ДД (например, 2026-07-01).")
     await state.set_state(SearchStates.waiting_for_checkin_date)
 
@@ -176,52 +215,57 @@ async def process_hotel_categories(message: Message, state: FSMContext):
 
 @router.message(SearchStates.waiting_for_max_price)
 async def process_max_price(message: Message, state: FSMContext):
+    raw = message.text.strip()
+    raw = raw.replace('\u200b', '').replace('\ufeff', '')
+    logger.info(f"process_max_price raw input: '{raw}'")
+    if not raw:
+        await message.answer("Пожалуйста, введите число.")
+        return
     try:
-        price = int(message.text.strip())
-        if price > 0:
-            await state.update_data(max_price=price)
-            data = await state.get_data()
-            await show_confirmation(message, data)
-            await state.set_state(SearchStates.waiting_for_confirmation)
-            return
+        price = int(raw)
     except ValueError:
-        pass
-    await message.answer("❗ Введите целое положительное число (рубли)")
+        await message.answer("❗ Введите целое положительное число (рубли)")
+        return
+    if price <= 0:
+        await message.answer("Цена должна быть положительной.")
+        return
+    await state.update_data(max_price=price)
+    data = await state.get_data()
+    await show_confirmation(message, data)
+    await state.set_state(SearchStates.waiting_for_confirmation)
 
-# Пропуск (для опциональных полей)
-@router.message(Command("skip"))
-async def cmd_skip(message: Message, state: FSMContext):
-    # Текущее состояние определяет, что пропускаем
-    current_state = await state.get_state()
-    if current_state == SearchStates.waiting_for_adults.state:
-        await state.update_data(adults=2)
-        await message.answer("Принято (2 взрослых). Теперь укажите количество детей (0 по умолчанию) или /skip.")
-        await state.set_state(SearchStates.waiting_for_kids)
-    elif current_state == SearchStates.waiting_for_checkout_date.state:
-        await message.answer("Хорошо, укажите количество ночей вручную (число или диапазон).")
-        await state.set_state(SearchStates.waiting_for_nights)
-    elif current_state == SearchStates.waiting_for_kids.state:
-        await state.update_data(kids=0)
-        await message.answer("Принято (0 детей). Теперь укажите количество младенцев (0) или /skip.")
-        await state.set_state(SearchStates.waiting_for_infants)
-    elif current_state == SearchStates.waiting_for_infants.state:
-        await state.update_data(infants=0)
-        await message.answer("Принято. Теперь введите категории отелей (звёзды) через запятую, например 5,4 или /skip.")
-        await state.set_state(SearchStates.waiting_for_hotel_categories)
-    elif current_state == SearchStates.waiting_for_hotel_categories.state:
-        await state.update_data(hotel_categories=[])
-        await message.answer("Принято. Введите максимальную цену в рублях или /skip.")
-        await state.set_state(SearchStates.waiting_for_max_price)
-    elif current_state == SearchStates.waiting_for_max_price.state:
-        await state.update_data(max_price=None)
-        data = await state.get_data()
-        await show_confirmation(message, data)
-        await state.set_state(SearchStates.waiting_for_confirmation)
-    else:
-        await message.answer("Пропуск недоступен на этом шаге.")
+def _get_country_name(country_id: int) -> str:
+    reverse = {v: k.capitalize() for k, v in _COUNTRY_NAME_TO_ID.items()}
+    return reverse.get(country_id, str(country_id))
+
+def _get_city_name(city_id: int) -> str:
+    reverse = {v: k.capitalize() for k, v in _CITY_NAME_TO_ID.items()}
+    return reverse.get(city_id, str(city_id))
+
 
 _countries_cache: Dict[int, str] = {}
 _cities_cache: Dict[int, str] = {}
+
+# Временные словари для распознавания названий (позже будут из API)
+_COUNTRY_NAME_TO_ID = {
+    "турция": 92,
+    "египет": 94,
+    "таиланд": 95,
+    "оаэ": 96,
+    "россия": 1,
+    "испания": 97,
+    "греция": 98,
+    "кипр": 99,
+}
+_CITY_NAME_TO_ID = {
+    "москва": 2,
+    "казань": 8,
+    "санкт-петербург": 3,
+    "екатеринбург": 4,
+    "новосибирск": 5,
+    "краснодар": 6,
+    "сочи": 7,
+}
 
 async def _load_caches(client: TravelataAPIClient):
     global _countries_cache, _cities_cache
@@ -233,10 +277,9 @@ async def _load_caches(client: TravelataAPIClient):
         _cities_cache = {c.id: c.name for c in cities}
 
 async def show_confirmation(message: Message, data: dict):
-    client = _travelata_client
-    if client:
-        await _load_caches(client)
-
+    #client = _travelata_client
+    #if client:
+    #    await _load_caches(client)
     country_id = data.get('country_id')
     city_id = data.get('departure_city')
     checkin = data.get('checkin_date')
@@ -249,8 +292,8 @@ async def show_confirmation(message: Message, data: dict):
     infants = data.get('infants', 0)
     max_price = data.get('max_price')
 
-    country_name = _countries_cache.get(country_id, str(country_id) if country_id else 'не указана')
-    city_name = _cities_cache.get(city_id, str(city_id) if city_id else 'не указан')
+    country_name = _countries_cache.get(country_id) if _countries_cache else _get_country_name(country_id)
+    city_name = _cities_cache.get(city_id) if _cities_cache else _get_city_name(city_id)
 
     if categories:
         categories_str = ', '.join(f"{c}★" for c in categories)
@@ -265,7 +308,6 @@ async def show_confirmation(message: Message, data: dict):
     else:
         nights_str = "не указано"
 
-    from datetime import timedelta
     if checkin and checkout:
         checkout_str = checkout.strftime("%Y-%m-%d")
     elif checkin and nights_min is not None:
@@ -362,11 +404,11 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         criteria_id = None
     
     text, keyboard = format_tours_message(grouped, criteria_id, criteria)
+    await callback.message.edit_reply_markup(reply_markup=None)
     if keyboard:
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.answer(text, reply_markup=keyboard)
     else:
-        await callback.message.edit_text(text)
-
+        await callback.message.answer(text)
     await state.clear()
 
 def format_tours_message(grouped: Dict[int, List[Tour]], criteria_id: Optional[int], criteria: SearchCriteria) -> tuple[str, Optional[InlineKeyboardMarkup]]:
