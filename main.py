@@ -7,7 +7,13 @@ from aiogram.enums import ParseMode
 
 from config import settings
 from repository import init_db
-from travelata_api import TravelataAPIClient
+from interfaces import ITravelataClient
+
+if settings.use_mock_api:
+    from mock_travelata import MockTravelataClient as TravelataClient
+else:
+    from travelata_api import TravelataAPIClient as TravelataClient
+
 from price_monitor import PriceMonitor
 from handlers import start_router, search_router, subscribe_router, callback_router
 from handlers.search import set_travelata_client
@@ -23,8 +29,7 @@ async def main():
     logger.info("База данных инициализирована")
 
     bot = Bot(token=settings.bot_token,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
+              default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
 
     dp.include_router(start_router)
@@ -32,7 +37,13 @@ async def main():
     dp.include_router(subscribe_router)
     dp.include_router(callback_router)
 
-    client = TravelataAPIClient(settings.travelata_login, settings.travelata_password)
+    if settings.use_mock_api:
+        logger.info("Используется МОК-клиент (без реального API)")
+        client = TravelataClient()  # MockTravelataClient
+    else:
+        logger.info("Используется реальный клиент Travelata API")
+        client = TravelataClient(settings.travelata_login, settings.travelata_password)
+
     set_travelata_client(client)
 
     monitor = PriceMonitor(bot, client)

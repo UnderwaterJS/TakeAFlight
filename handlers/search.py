@@ -363,7 +363,8 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
 
     client = _travelata_client
     if client is None:
-        await callback.message.edit_text("❌ Ошибка: клиент API не инициализирован. Попробуйте позже.")
+        await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки у исходного
+        await callback.message.answer("❌ Ошибка: клиент API не инициализирован. Попробуйте позже.")
         await state.clear()
         return
     
@@ -381,7 +382,8 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
             hotel_categories=criteria.hotel_categories if criteria.hotel_categories else None,
         )
     except Exception as e:
-        await callback.message.edit_text(f"❌ Ошибка при поиске: {e}")
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(f"❌ Ошибка при поиске: {e}")
         await state.clear()
         return
     
@@ -389,8 +391,11 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         tours = [t for t in tours if t.price <= criteria.max_price]
 
     if not tours:
-        await callback.message.edit_text("По вашему запросу туров не найдено.\n"
-            "Попробуйте изменить критерии (например, расширить даты или увеличить бюджет).")
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(
+            "По вашему запросу туров не найдено.\n"
+            "Попробуйте изменить критерии (например, расширить даты или увеличить бюджет)."
+        )
         await state.clear()
         return
     
@@ -404,7 +409,7 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         criteria_id = None
     
     text, keyboard = format_tours_message(grouped, criteria_id, criteria)
-    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки
     if keyboard:
         await callback.message.answer(text, reply_markup=keyboard)
     else:

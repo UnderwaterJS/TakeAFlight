@@ -8,11 +8,12 @@ from aiohttp import ClientTimeout, ClientResponseError
 
 from config import settings
 from models import (Country, Tour, Resort, Hotel, Meal, HotelCategory, DepartureCity)
+from interfaces import ITravelataClient
 
 logger = logging.getLogger(__name__)
 
 
-class TravelataAPIClient:
+class TravelataAPIClient(ITravelataClient):
     """
     Асинхронный клиент для api Travelata
     """

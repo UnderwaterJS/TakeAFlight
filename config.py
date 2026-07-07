@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 
 class Settings(BaseSettings):
+    use_mock_api: bool = False
     #general bot`s options
     bot_token: str = Field(..., env="BOT_TOKEN")
 
