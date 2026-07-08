@@ -1,6 +1,5 @@
 import asyncio
 import logging
-
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -16,7 +15,8 @@ else:
 
 from price_monitor import PriceMonitor
 from handlers import start_router, search_router, subscribe_router, callback_router
-from handlers.search import set_travelata_client
+from handlers.search import set_travelata_client, set_cache  # добавим функцию
+from cache import cache
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,12 +39,19 @@ async def main():
 
     if settings.use_mock_api:
         logger.info("Используется МОК-клиент (без реального API)")
-        client = TravelataClient()  # MockTravelataClient
+        client = TravelataClient()
     else:
         logger.info("Используется реальный клиент Travelata API")
         client = TravelataClient(settings.travelata_login, settings.travelata_password)
 
+    try:
+        await cache.load(client)
+        logger.info("Справочники загружены")
+    except Exception as e:
+        logger.error(f"Не удалось загрузить справочники: {e}")
+
     set_travelata_client(client)
+    set_cache(cache)
 
     monitor = PriceMonitor(bot, client)
     asyncio.create_task(monitor.run())

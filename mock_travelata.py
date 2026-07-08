@@ -56,9 +56,6 @@ class MockTravelataClient(ITravelataClient):
             DepartureCity(id=4, name="Казань", disabled=False),
         ]
 
-    # Остальные методы (get_countries, get_resorts и т.д.) оставляем без изменений
-    # ...
-
     async def get_cheapest_tours(self,
                                  country_ids: List[int],
                                  departure_city: int,
@@ -72,26 +69,21 @@ class MockTravelataClient(ITravelataClient):
                                  resorts: Optional[List[int]] = None,
                                  meals: Optional[List[int]] = None,
                                  hotel_categories: Optional[List[int]] = None) -> List[Tour]:
-        # Генерируем от 5 до 15 туров, чтобы всегда был результат
         count = random.randint(5, 15)
         tours = []
 
-        # Определяем страну из переданных country_ids
         if country_ids:
             possible = [c for c in self.countries if c.id in country_ids]
             country = random.choice(possible) if possible else random.choice(self.countries)
         else:
             country = random.choice(self.countries)
 
-        # Получаем курорты для этой страны
         resorts_for_country = self.resorts.get(country.id, [])
         if not resorts_for_country:
-            # Если нет курортов, создаём фиктивный
             resort = Resort(id=999, name="Фиктивный курорт", country=country.id, isPopular=False, disabled=False)
         else:
             resort = random.choice(resorts_for_country)
 
-        # Отели для курорта
         hotel_list = self.hotels.get(resort.id, [])
         if not hotel_list:
             hotel = Hotel(id=9999, name="Фиктивный отель", resort=resort.id, country=country.id,
@@ -100,18 +92,14 @@ class MockTravelataClient(ITravelataClient):
         else:
             hotel = random.choice(hotel_list)
 
-        # Определяем допустимые звёзды
         if hotel_categories:
             possible_stars = hotel_categories
         else:
             possible_stars = [2, 3, 4, 5]
 
         for i in range(count):
-            # Цена от 30k до 200k
             price = random.randint(30000, 200000)
-            # Старая цена может быть выше
             old_price = price + random.randint(0, 30000)
-            # Количество ночей
             if nights_min is not None and nights_max is not None:
                 nights = random.randint(nights_min, nights_max)
             elif nights_min is not None:
@@ -122,7 +110,6 @@ class MockTravelataClient(ITravelataClient):
                 nights = random.randint(5, 14)
 
             departure_date = checkin_date_from + timedelta(days=random.randint(0, 5))
-            # Убедимся, что выезд не раньше заезда
             if departure_date > checkin_date_to:
                 departure_date = checkin_date_from
 

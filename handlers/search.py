@@ -11,6 +11,7 @@ from search_engine import filter_by_match_threshold
 from repository import create_search_criteria
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict
+from cache import DirectoryCache
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,22 @@ async def cmd_skip(message: Message, state: FSMContext):
     else:
         await message.answer("Пропуск недоступен на этом шаге.")
 
+_cache: Optional[DirectoryCache] = None
+
+def set_cache(cache: DirectoryCache):
+    global _cache
+    _cache = cache
+
+def _get_country_name(country_id: int) -> str:
+    if _cache:
+        return _cache.get_country_name(country_id)
+    return str(country_id)
+
+def _get_city_name(city_id: int) -> str:
+    if _cache:
+        return _cache.get_departure_city_name(city_id)
+    return str(city_id)
+
 @router.message(StateFilter(SearchStates.waiting_for_country))
 async def process_country(message: Message, state: FSMContext):
     text = message.text.strip()
@@ -85,7 +102,8 @@ async def process_country(message: Message, state: FSMContext):
     try:
         country_id = int(text)
     except ValueError:
-        country_id = _COUNTRY_NAME_TO_ID.get(text.lower())
+        if _cache:
+            country_id = _cache.get_country_id(text)
     if country_id is None:
         await message.answer("Не удалось распознать страну. Введите название (например, Турция) или ID.")
         return
@@ -100,7 +118,8 @@ async def process_departure_city(message: Message, state: FSMContext):
     try:
         city_id = int(text)
     except ValueError:
-        city_id = _CITY_NAME_TO_ID.get(text.lower())
+        if _cache:
+            city_id = _cache.get_departure_city_id(text)
     if city_id is None:
         await message.answer("Не удалось распознать город. Введите название (например, Москва) или ID.")
         return
@@ -242,44 +261,7 @@ def _get_city_name(city_id: int) -> str:
     reverse = {v: k.capitalize() for k, v in _CITY_NAME_TO_ID.items()}
     return reverse.get(city_id, str(city_id))
 
-
-_countries_cache: Dict[int, str] = {}
-_cities_cache: Dict[int, str] = {}
-
-# Временные словари для распознавания названий (позже будут из API)
-_COUNTRY_NAME_TO_ID = {
-    "турция": 92,
-    "египет": 94,
-    "таиланд": 95,
-    "оаэ": 96,
-    "россия": 1,
-    "испания": 97,
-    "греция": 98,
-    "кипр": 99,
-}
-_CITY_NAME_TO_ID = {
-    "москва": 2,
-    "казань": 8,
-    "санкт-петербург": 3,
-    "екатеринбург": 4,
-    "новосибирск": 5,
-    "краснодар": 6,
-    "сочи": 7,
-}
-
-async def _load_caches(client: TravelataAPIClient):
-    global _countries_cache, _cities_cache
-    if not _countries_cache:
-        countries = await client.get_countries()
-        _countries_cache = {c.id: c.name for c in countries}
-    if not _cities_cache:
-        cities = await client.get_departure_cities()
-        _cities_cache = {c.id: c.name for c in cities}
-
 async def show_confirmation(message: Message, data: dict):
-    #client = _travelata_client
-    #if client:
-    #    await _load_caches(client)
     country_id = data.get('country_id')
     city_id = data.get('departure_city')
     checkin = data.get('checkin_date')
@@ -292,33 +274,38 @@ async def show_confirmation(message: Message, data: dict):
     infants = data.get('infants', 0)
     max_price = data.get('max_price')
 
-    country_name = _countries_cache.get(country_id) if _countries_cache else _get_country_name(country_id)
-    city_name = _cities_cache.get(city_id) if _cities_cache else _get_city_name(city_id)
+    if _cache:
+        country_name = _cache.get_country_name(country_id) if country_id else "не указана"
+        city_name = _cache.get_departure_city_name(city_id) if city_id else "не указан"
+    else:
+        country_name = str(country_id) if country_id else "не указана"
+        city_name = str(city_id) if city_id else "не указан"
 
     if categories:
         categories_str = ', '.join(f"{c}★" for c in categories)
     else:
         categories_str = 'любые'
 
-    if nights_min is not None and nights_max is not None:
-        if nights_min == nights_max:
-            nights_str = str(nights_min)
+    if checkin:
+        if checkout:
+            checkout_str = checkout.strftime("%Y-%m-%d")
+        elif nights_min is not None:
+            if nights_max is not None and nights_max != nights_min:
+                start = checkin + timedelta(days=nights_min)
+                end = checkin + timedelta(days=nights_max)
+                checkout_str = f"{start.strftime('%Y-%m-%d')} – {end.strftime('%Y-%m-%d')}"
+            else:
+                checkout_calc = checkin + timedelta(days=nights_min)
+                checkout_str = checkout_calc.strftime("%Y-%m-%d")
         else:
-            nights_str = f"{nights_min}-{nights_max}"
-    else:
-        nights_str = "не указано"
-
-    if checkin and checkout:
-        checkout_str = checkout.strftime("%Y-%m-%d")
-    elif checkin and nights_min is not None:
-        checkout_calc = checkin + timedelta(days=nights_min)
-        if nights_max is not None and nights_max != nights_min:
-            checkout_calc2 = checkin + timedelta(days=nights_max)
-            checkout_str = f"{checkout_calc.strftime('%Y-%m-%d')} – {checkout_calc2.strftime('%Y-%m-%d')}"
-        else:
-            checkout_str = checkout_calc.strftime("%Y-%m-%d")
+            checkout_str = "не указана"
     else:
         checkout_str = "не указана"
+
+    if nights_min is not None and nights_max is not None:
+        nights_str = f"{nights_min}-{nights_max}" if nights_min != nights_max else str(nights_min)
+    else:
+        nights_str = "не указано"
 
     text = (
         "📋 Проверьте параметры:\n"
@@ -363,17 +350,17 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
 
     client = _travelata_client
     if client is None:
-        await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки у исходного
+        await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer("❌ Ошибка: клиент API не инициализирован. Попробуйте позже.")
         await state.clear()
         return
-    
+
     try:
         tours = await client.get_cheapest_tours(
             country_ids=[criteria.country_id] if criteria.country_id else [],
             departure_city=criteria.departure_city_id,
             checkin_date_from=criteria.checkin_date_from,
-            checkin_date_to=criteria.checkin_date_from,
+            checkin_date_to=criteria.checkin_date_to,   # теперь это дата заезда
             adults=criteria.adults,
             kids=criteria.kids,
             infants=criteria.infants,
@@ -481,3 +468,86 @@ async def cancel_search(callback: CallbackQuery, state: FSMContext):
 async def cmd_cancel(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено.")
+
+@router.message(Command("test_search"))
+async def cmd_test_search(message: Message, state: FSMContext):
+    """Тестовый поиск с заранее заданными параметрами (для отладки)"""
+    await state.clear()
+
+    country_name = "Турция"
+    city_name = "Казань"
+    checkin = date(2026, 7, 14)
+    nights = 7
+    adults = 1
+    kids = 0
+    infants = 0
+    categories = [3,4,5]
+    max_price = 100000
+
+    if not _cache:
+        await message.answer("Справочники ещё не загружены. Попробуйте позже.")
+        return
+
+    country_id = _cache.get_country_id(country_name)
+    city_id = _cache.get_departure_city_id(city_name)
+    if country_id is None or city_id is None:
+        await message.answer("Не удалось определить ID страны или города. Проверьте справочники.")
+        return
+
+    criteria = SearchCriteria(
+        user_id=message.from_user.id,
+        country_id=country_id,
+        departure_city_id=city_id,
+        checkin_date_from=checkin,
+        checkin_date_to=checkin,
+        nights_min=nights,
+        nights_max=nights,
+        adults=adults,
+        kids=kids,
+        infants=infants,
+        hotel_categories=categories,
+        max_price=max_price
+    )
+
+    client = _travelata_client
+    if client is None:
+        await message.answer("❌ Клиент API не инициализирован.")
+        return
+
+    await message.answer("🔍 Выполняю тестовый поиск...")
+
+    try:
+        tours = await client.get_cheapest_tours(
+            country_ids=[criteria.country_id],
+            departure_city=criteria.departure_city_id,
+            checkin_date_from=criteria.checkin_date_from,
+            checkin_date_to=criteria.checkin_date_to,
+            adults=criteria.adults,
+            kids=criteria.kids,
+            infants=criteria.infants,
+            nights_min=criteria.nights_min,
+            nights_max=criteria.nights_max,
+            hotel_categories=criteria.hotel_categories if criteria.hotel_categories else None,
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при поиске: {e}")
+        return
+
+    if criteria.max_price is not None:
+        tours = [t for t in tours if t.price <= criteria.max_price]
+
+    if not tours:
+        await message.answer("😔 По тестовому запросу туров не найдено.")
+        return
+
+    text = "✅ Найденные туры (первые 5):\n\n"
+    for i, tour in enumerate(tours[:5], 1):
+        text += (
+            f"{i}. 🏨 {tour.hotelName}\n"
+            f"   ⭐ {tour.hotelCategoryName}\n"
+            f"   💰 {tour.price} руб.\n"
+            f"   🌙 {tour.nights} ночей\n"
+            f"   📅 {tour.checkinDate}\n"
+            f"   🔗 [Ссылка]({tour.tourPageUrl})\n\n"
+        )
+    await message.answer(text)

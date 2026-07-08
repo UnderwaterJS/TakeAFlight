@@ -87,6 +87,8 @@ class TravelataAPIClient(ITravelataClient):
                     if result is None:
                         #Если поле result отсутствует, возможно это старая версия
                         result = data.get('data', [])
+                    
+                    logger.info(f"Ответ от {endpoint}: success={data.get('success')}, count={len(data.get('result', []))}")
 
                     return result
 
@@ -173,21 +175,20 @@ class TravelataAPIClient(ITravelataClient):
 
     # Главный метод поиска туров по заданным критериям
     async def get_cheapest_tours(self,
-                                 country_ids: List[int],
-                                 departure_city: int,
-                                 checkin_date_from: date,
-                                 checkin_date_to: date,
-                                 adults: int = 2,
-                                 kids: int = 0,
-                                 infants: int = 0,
-                                 nights_min: Optional[int] = None,
-                                 nights_max: Optional[int] = None,
-                                 resorts: Optional[List[int]] = None,
-                                 meals: Optional[List[int]] = None,
-                                 hotel_categories: Optional[List[int]] = None
-                                 ) -> List[Tour]:
+                             country_ids: List[int],
+                             departure_city: int,
+                             checkin_date_from: date,
+                             checkin_date_to: date,
+                             adults: int = 2,
+                             kids: int = 0,
+                             infants: int = 0,
+                             nights_min: Optional[int] = None,
+                             nights_max: Optional[int] = None,
+                             resorts: Optional[List[int]] = None,
+                             meals: Optional[List[int]] = None,
+                             hotel_categories: Optional[List[int]] = None
+                             ) -> List[Tour]:
         params = {
-            'countries[]': country_ids[0] if country_ids else None,
             'departureCity': departure_city,
             'touristGroup[adults]': adults,
             'touristGroup[kids]': kids,
@@ -195,6 +196,10 @@ class TravelataAPIClient(ITravelataClient):
             'checkInDateRange[from]': checkin_date_from.isoformat(),
             'checkInDateRange[to]': checkin_date_to.isoformat(),
         }
+
+        if country_ids:
+            for cid in country_ids:
+                params.setdefault('countries[]', []).append(cid)
 
         params = {k: v for k, v in params.items() if v is not None}
 
@@ -212,6 +217,8 @@ class TravelataAPIClient(ITravelataClient):
         if hotel_categories:
             for hc in hotel_categories:
                 params.setdefault('hotelCategories[]', []).append(hc)
+
+        logger.info(f"Запрос к cheapestTours с параметрами: {params}")
 
         data = await self._request("partners/statistic/cheapestTours", params=params)
         return [Tour(**item) for item in data]

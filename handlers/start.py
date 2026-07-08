@@ -16,6 +16,7 @@ async def cmd_help(message: types.Message):
         "/start – Приветствие\n"
         "/help – Справка\n"
         "/search – Начать поиск тура\n"
+        "/test_search – Начать тестовый поиск\n"
         "/subscribe – Управление подписками\n"
         "/hot – Горящие туры (быстрый поиск)\n"
         "/my_subscriptions – Мои подписки\n"
