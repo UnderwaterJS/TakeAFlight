@@ -7,11 +7,12 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from handlers.states import SearchStates
 from models import SearchCriteria, Tour
 from travelata_api import TravelataAPIClient
-from search_engine import filter_by_match_threshold
-from repository import create_search_criteria
+from search_engine import filter_by_match_threshold, rank_tours
+from repository import create_search_criteria, search_feed_tours
 from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict
-from cache import DirectoryCache
+from typing import Optional, List, Dict, Any
+from cache import DirectoryCache, cache
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +349,91 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         max_price=data.get('max_price')
     )
 
+    if settings.use_feed:
+        if not _cache:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer("❌ Справочники не загружены. Попробуйте позже.")
+            await state.clear()
+            return
+
+        departure_city_name = _cache.get_departure_city_name(criteria.departure_city_id)
+        country_name = _cache.get_country_name(criteria.country_id) if criteria.country_id else None
+
+        if not departure_city_name or not country_name:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer("❌ Не удалось определить город вылета или страну.")
+            await state.clear()
+            return
+
+        date_from = criteria.checkin_date_from
+        date_to = criteria.checkin_date_to
+        nights_min = criteria.nights_min or 7
+        nights_max = criteria.nights_max or 14
+        stars = criteria.hotel_categories if criteria.hotel_categories else [1,2,3,4,5]
+        max_price = criteria.max_price or 9999999
+
+        feed_tours_orm = await search_feed_tours(
+            departure_city=departure_city_name,
+            country=country_name,
+            date_from=date_from,
+            date_to=date_to,
+            nights_min=nights_min,
+            nights_max=nights_max,
+            stars=stars,
+            max_price=max_price,
+            limit=20
+        )
+
+        if not feed_tours_orm:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer(
+                "По вашему запросу туров не найдено в фиде.\n"
+                "Попробуйте изменить критерии (даты, звёзды, бюджет)."
+            )
+            await state.clear()
+            return
+
+        tours = []
+        for ft in feed_tours_orm:
+            tour = Tour(
+                tourIdentity=ft.id,
+                price=ft.price,
+                publishedAt=datetime.now(),
+                checkinDate=ft.departure_date,
+                nights=ft.nights,
+                hotelId=0,
+                mealId=0,
+                expired=datetime.now(),
+                operatorId=0,
+                resortId=0,
+                tourPageUrl=ft.url_hotel,
+                searchPageUrl=ft.url_country,
+                hotelName=ft.hotel_name,
+                hotelCategory=ft.stars,
+                hotelCategoryName=f"{ft.stars}*",
+                hotelRating=None,
+                hotelPreview=ft.hotel_preview
+            )
+            tours.append(tour)
+
+        ranked_tours = [{'tour': t, 'match_percent': 100} for t in tours]
+
+        try:
+            saved_criteria = await create_search_criteria(criteria.model_dump())
+            criteria_id = saved_criteria.id
+        except Exception as e:
+            logger.error(f"Не удалось сохранить критерии: {e}")
+            criteria_id = None
+
+        text, keyboard = format_tours_message(ranked_tours, criteria_id, criteria)
+        await callback.message.edit_reply_markup(reply_markup=None)
+        if keyboard:
+            await callback.message.answer(text, reply_markup=keyboard)
+        else:
+            await callback.message.answer(text)
+        await state.clear()
+        return
+
     client = _travelata_client
     if client is None:
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -360,7 +446,7 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
             country_ids=[criteria.country_id] if criteria.country_id else [],
             departure_city=criteria.departure_city_id,
             checkin_date_from=criteria.checkin_date_from,
-            checkin_date_to=criteria.checkin_date_to,   # теперь это дата заезда
+            checkin_date_to=criteria.checkin_date_to,
             adults=criteria.adults,
             kids=criteria.kids,
             infants=criteria.infants,
@@ -373,7 +459,7 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"❌ Ошибка при поиске: {e}")
         await state.clear()
         return
-    
+
     if criteria.max_price is not None:
         tours = [t for t in tours if t.price <= criteria.max_price]
 
@@ -385,39 +471,44 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         )
         await state.clear()
         return
-    
-    grouped = filter_by_match_threshold(tours, criteria)
+
+    ranked_tours = rank_tours(tours, criteria)
 
     try:
-        saved_criteria = await create_search_criteria(criteria)
+        saved_criteria = await create_search_criteria(criteria.model_dump())
         criteria_id = saved_criteria.id
     except Exception as e:
         logger.error(f"Не удалось сохранить критерии: {e}")
         criteria_id = None
-    
-    text, keyboard = format_tours_message(grouped, criteria_id, criteria)
-    await callback.message.edit_reply_markup(reply_markup=None)  # убираем кнопки
+
+    text, keyboard = format_tours_message(ranked_tours, criteria_id, criteria)
+    await callback.message.edit_reply_markup(reply_markup=None)
     if keyboard:
         await callback.message.answer(text, reply_markup=keyboard)
     else:
         await callback.message.answer(text)
     await state.clear()
 
-def format_tours_message(grouped: Dict[int, List[Tour]], criteria_id: Optional[int], criteria: SearchCriteria) -> tuple[str, Optional[InlineKeyboardMarkup]]:
+def format_tours_message(ranked: List[Dict[str, Any]], criteria_id: Optional[int], criteria: SearchCriteria) -> tuple[str, Optional[InlineKeyboardMarkup]]:
+    if not ranked:
+        return "😔 Не найдено туров, удовлетворяющих критериям.", None
+
     text = "🔍 Найденные туры:\n\n"
     buttons = []
     tour_counter = 0
-    
-    # Порядок отображения: 100% → 80% → 60%
-    for match_percent in [100, 80, 60]:
-        tours_in_group = grouped.get(match_percent, [])
-        if not tours_in_group:
-            continue
-        text += f"✅ {match_percent}% совпадение:\n"
-        # Показываем первые 5 из группы (можно сделать больше/меньше)
-        for tour in tours_in_group[:5]:
+
+    groups = {}
+    for item in ranked:
+        percent = item['match_percent']
+        group_key = round(percent / 10) * 10
+        groups.setdefault(group_key, []).append(item)
+
+    for percent in sorted(groups.keys(), reverse=True):
+        items = groups[percent]
+        text += f"✅ {percent}% совпадение:\n"
+        for item in items[:5]:  # показываем первые 5 из группы
+            tour = item['tour']
             tour_counter += 1
-            # Формируем строку отеля
             hotel_info = f"🏨 {tour.hotelName}" if tour.hotelName else "🏨 Отель без названия"
             stars = f"⭐ {tour.hotelCategoryName}" if tour.hotelCategoryName else f"⭐ {tour.hotelCategory}*"
             text += (
@@ -429,18 +520,13 @@ def format_tours_message(grouped: Dict[int, List[Tour]], criteria_id: Optional[i
                 f"🔗 [Подробнее]({tour.tourPageUrl})\n"
                 "---\n"
             )
-            # Кнопка подписки на этот тур (используем tourIdentity)
-            buttons.append([
-                InlineKeyboardButton(
-                    text=f"🔔 Подписаться на тур #{tour_counter}",
-                    callback_data=f"subscribe_tour_{tour.tourIdentity}"
-                )
-            ])
-    
-    if tour_counter == 0:
-        return "😔 Не найдено туров, удовлетворяющих критериям.", None
-    
-    # Кнопка подписки на критерии (если удалось сохранить)
+            #buttons.append([
+                #InlineKeyboardButton(
+                    #text=f"🔔 Подписаться на тур #{tour_counter}",
+                    #callback_data=f"subscribe_tour_{tour.tourIdentity}"
+                #)
+            #])
+
     if criteria_id:
         buttons.append([
             InlineKeyboardButton(
@@ -448,12 +534,7 @@ def format_tours_message(grouped: Dict[int, List[Tour]], criteria_id: Optional[i
                 callback_data=f"subscribe_criteria_{criteria_id}"
             )
         ])
-    else:
-        # Если не сохранили, всё равно предложим (но без id) – можно сохранить позже
-        pass
-    
-    # Дополнительная кнопка "Показать ещё" (пагинация) – позже реализуем
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None
     return text, keyboard
 

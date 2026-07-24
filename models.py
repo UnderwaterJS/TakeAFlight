@@ -99,3 +99,22 @@ class DepartureCity(BaseModel):
     id: int
     name: str
     disabled: bool
+
+class FeedTour(BaseModel):
+    id: str                     
+    departure_city: str         
+    country: str                
+    resort: str                 
+    hotel_name: str
+    stars: int                  
+    price: int                  
+    departure_date: date        
+    nights: int                 
+    operator: str               
+    hotel_preview: str          
+    resort_preview: str         
+    url_country: str            
+    url_resort: str             
+    url_hotel: str              
+
+    feed_updated_at: datetime = datetime.now()  # время загрузки

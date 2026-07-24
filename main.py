@@ -50,6 +50,18 @@ async def main():
     except Exception as e:
         logger.error(f"Не удалось загрузить справочники: {e}")
 
+    if settings.use_feed:
+        async def periodic_feed_update():
+            while True:
+                try:
+                    await refresh_all_feeds()
+                except Exception as e:
+                    logger.exception("Ошибка при обновлении фидов")
+                await asyncio.sleep(1800)  # 30 минут
+
+        asyncio.create_task(periodic_feed_update())
+        logger.info("Запущено периодическое обновление фидов (каждые 30 минут)")
+
     set_travelata_client(client)
     set_cache(cache)
 
