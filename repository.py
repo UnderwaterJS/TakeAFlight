@@ -1,10 +1,10 @@
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from symtable import Class
 from typing import Optional, List
 
-from models import SearchCriteria
-from sqlalchemy import (Column, Integer, String, DateTime, Boolean, ForeignKey, Float, Text, JSON)
+from models import SearchCriteria, FeedTour
+from sqlalchemy import (Column, Integer, String, DateTime, Boolean, ForeignKey, Float, Text, JSON, Index, Date)
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base, relationship, selectinload
 from sqlalchemy import select, update, delete
@@ -72,6 +72,31 @@ class PriceHistoryORM(Base):
     price = Column(Integer, nullable=False)
     checked_at = Column(DateTime, default=datetime.now, index=True)
 
+class FeedTourORM(Base):
+    __tablename__ = "feed_tours"
+
+    id = Column(String, primary_key=True, index=True)
+    departure_city = Column(String, nullable=False, index=True)
+    country = Column(String, nullable=False, index=True)
+    resort = Column(String)
+    hotel_name = Column(String)
+    stars = Column(Integer)
+    price = Column(Integer)
+    departure_date = Column(Date, index=True)
+    nights = Column(Integer)
+    operator = Column(String)
+    hotel_preview = Column(String)
+    resort_preview = Column(String)
+    url_country = Column(String)
+    url_resort = Column(String)
+    url_hotel = Column(String)
+    feed_updated_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        Index('idx_feed_departure_country', 'departure_city', 'country'),
+        Index('idx_feed_departure_date', 'departure_date'),
+        Index('idx_feed_stars_price', 'stars', 'price'),
+    )
 
 engine = create_async_engine(
     settings.database_url,
@@ -254,3 +279,63 @@ async def deactivate_all_user_subscriptions(user_id: int) -> int:
         )
         await session.commit()
         return result.rowcount
+
+async def save_feed_tours(tours: List[FeedTour]) -> int:
+    """
+    Очищает таблицу feed_tours и вставляет новые записи.
+    Возвращает количество вставленных записей.
+    Работает в транзакции, чтобы избежать частичного обновления.
+    """
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(delete(FeedTourORM))
+            orm_objects = []
+            for t in tours:
+                orm_obj = FeedTourORM(
+                    id=t.id,
+                    departure_city=t.departure_city,
+                    country=t.country,
+                    resort=t.resort,
+                    hotel_name=t.hotel_name,
+                    stars=t.stars,
+                    price=t.price,
+                    departure_date=t.departure_date,
+                    nights=t.nights,
+                    operator=t.operator,
+                    hotel_preview=t.hotel_preview,
+                    resort_preview=t.resort_preview,
+                    url_country=t.url_country,
+                    url_resort=t.url_resort,
+                    url_hotel=t.url_hotel,
+                    feed_updated_at=datetime.now()
+                )
+                orm_objects.append(orm_obj)
+            session.add_all(orm_objects)
+        return len(orm_objects)
+
+async def search_feed_tours(
+    departure_city: str,
+    country: str,
+    date_from: date,
+    date_to: date,
+    nights_min: int,
+    nights_max: int,
+    stars: List[int],
+    max_price: int,
+    limit: int = 20
+) -> List[FeedTourORM]:
+    """
+    Ищет туры в фиде по заданным критериям.
+    Возвращает отсортированный по цене список (до limit записей).
+    """
+    async with AsyncSessionLocal() as session:
+        query = select(FeedTourORM).where(
+            FeedTourORM.departure_city == departure_city,
+            FeedTourORM.country == country,
+            FeedTourORM.departure_date.between(date_from, date_to),
+            FeedTourORM.nights.between(nights_min, nights_max),
+            FeedTourORM.stars.in_(stars),
+            FeedTourORM.price <= max_price
+        ).order_by(FeedTourORM.price).limit(limit)
+        result = await session.execute(query)
+        return result.scalars().all()

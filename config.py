@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     use_mock_api: bool = False
     #general bot`s options
     bot_token: str = Field(..., env="BOT_TOKEN")
-
+    use_feed: bool = True
     #search options
     search_interval_minutes: int = Field(default=10, env="SEARCH_INTERVAL_MINUTES")
     api_request_timeout: int = Field(default=30, env="API_REQUEST_TIMEOUT")

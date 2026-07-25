@@ -220,5 +220,7 @@ class TravelataAPIClient(ITravelataClient):
 
         logger.info(f"Запрос к cheapestTours с параметрами: {params}")
 
+        params['limit'] = 20
+
         data = await self._request("partners/statistic/cheapestTours", params=params)
         return [Tour(**item) for item in data]
