@@ -15,8 +15,10 @@ else:
 
 from price_monitor import PriceMonitor
 from handlers import start_router, search_router, subscribe_router, callback_router
-from handlers.search import set_travelata_client, set_cache  # добавим функцию
+from handlers.search import set_travelata_client, set_cache
 from cache import cache
+from level_feed_loader import refresh_all_feeds, FEED_URLS
+import handlers.state as app_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +31,8 @@ async def main():
     logger.info("База данных инициализирована")
 
     bot = Bot(token=settings.bot_token,
-              default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+              default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+              request_timeout=60)
     dp = Dispatcher()
 
     dp.include_router(start_router)
@@ -51,13 +54,25 @@ async def main():
         logger.error(f"Не удалось загрузить справочники: {e}")
 
     if settings.use_feed:
+        logger.info("Загрузка фидов при старте...")
+        try:
+            await refresh_all_feeds()
+            app_state.feeds_loaded = True
+            logger.info("Фиды успешно загружены, поиск доступен")
+        except Exception as e:
+            logger.exception("Ошибка при загрузке фидов")
+            app_state.feeds_loaded = False
+
         async def periodic_feed_update():
+            await asyncio.sleep(1800)  # ждём 30 минут
             while True:
                 try:
                     await refresh_all_feeds()
+                    app_state.feeds_loaded = True
+                    logger.info("Фиды обновлены")
                 except Exception as e:
                     logger.exception("Ошибка при обновлении фидов")
-                await asyncio.sleep(1800)  # 30 минут
+                await asyncio.sleep(1800)
 
         asyncio.create_task(periodic_feed_update())
         logger.info("Запущено периодическое обновление фидов (каждые 30 минут)")

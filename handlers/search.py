@@ -13,6 +13,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 from cache import DirectoryCache, cache
 from config import settings
+from handlers import state as app_state
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +351,12 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
     )
 
     if settings.use_feed:
+        if not app_state.feeds_loaded:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.answer("⏳ Данные ещё загружаются, подождите пару минут и попробуйте снова.")
+            await state.clear()
+            return
+
         if not _cache:
             await callback.message.edit_reply_markup(reply_markup=None)
             await callback.message.answer("❌ Справочники не загружены. Попробуйте позже.")
@@ -365,11 +372,12 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
             await state.clear()
             return
 
-        date_from = criteria.checkin_date_from
-        date_to = criteria.checkin_date_to
+        search_date = criteria.checkin_date_from
+        date_from = search_date
+        date_to = search_date
         nights_min = criteria.nights_min or 7
         nights_max = criteria.nights_max or 14
-        stars = criteria.hotel_categories if criteria.hotel_categories else [1,2,3,4,5]
+        stars = criteria.hotel_categories if criteria.hotel_categories else [0, 1, 2, 3, 4, 5]
         max_price = criteria.max_price or 9999999
 
         feed_tours_orm = await search_feed_tours(
@@ -406,13 +414,13 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
                 expired=datetime.now(),
                 operatorId=0,
                 resortId=0,
-                tourPageUrl=ft.url_hotel,
-                searchPageUrl=ft.url_country,
+                tourPageUrl=ft.hotel_url,
+                searchPageUrl=ft.country_url,
                 hotelName=ft.hotel_name,
-                hotelCategory=ft.stars,
-                hotelCategoryName=f"{ft.stars}*",
+                hotelCategory=ft.hotel_stars,
+                hotelCategoryName=f"{ft.hotel_stars}*" if ft.hotel_stars else "без звёзд",
                 hotelRating=None,
-                hotelPreview=ft.hotel_preview
+                hotelPreview=ft.picture_hotel
             )
             tours.append(tour)
 

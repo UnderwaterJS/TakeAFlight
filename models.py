@@ -101,20 +101,22 @@ class DepartureCity(BaseModel):
     disabled: bool
 
 class FeedTour(BaseModel):
-    id: str                     
-    departure_city: str         
-    country: str                
-    resort: str                 
+    id: str
+    price: int
+    nights: int
     hotel_name: str
-    stars: int                  
-    price: int                  
-    departure_date: date        
-    nights: int                 
-    operator: str               
-    hotel_preview: str          
-    resort_preview: str         
-    url_country: str            
-    url_resort: str             
-    url_hotel: str              
-
-    feed_updated_at: datetime = datetime.now()  # время загрузки
+    hotel_stars: int = 0
+    country: str
+    region: str
+    departure_city: str
+    departure_date: date
+    operator_name: str
+    picture_hotel: str
+    picture_hotel_800x600: str
+    picture_seo_800x620: str
+    hotel_url: str
+    region_url: str
+    country_url: str
+    min_country_price_url: str
+    min_region_price_url: str
+    feed_updated_at: datetime = datetime.now()
