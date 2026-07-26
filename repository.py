@@ -74,28 +74,29 @@ class PriceHistoryORM(Base):
 
 class FeedTourORM(Base):
     __tablename__ = "feed_tours"
-
     id = Column(String, primary_key=True, index=True)
-    departure_city = Column(String, nullable=False, index=True)
-    country = Column(String, nullable=False, index=True)
-    resort = Column(String)
-    hotel_name = Column(String)
-    stars = Column(Integer)
     price = Column(Integer)
-    departure_date = Column(Date, index=True)
     nights = Column(Integer)
-    operator = Column(String)
-    hotel_preview = Column(String)
-    resort_preview = Column(String)
-    url_country = Column(String)
-    url_resort = Column(String)
-    url_hotel = Column(String)
+    hotel_name = Column(String)
+    hotel_stars = Column(Integer, default=0)
+    country = Column(String, index=True)
+    region = Column(String)
+    departure_city = Column(String, index=True)
+    departure_date = Column(Date, index=True)
+    operator_name = Column(String)
+    picture_hotel = Column(String)
+    picture_hotel_800x600 = Column(String)
+    picture_seo_800x620 = Column(String)
+    hotel_url = Column(String)
+    region_url = Column(String)
+    country_url = Column(String)
+    min_country_price_url = Column(String)
+    min_region_price_url = Column(String)
     feed_updated_at = Column(DateTime, default=datetime.now)
-
     __table_args__ = (
-        Index('idx_feed_departure_country', 'departure_city', 'country'),
+        Index('idx_feed_departure_city_country', 'departure_city', 'country'),
         Index('idx_feed_departure_date', 'departure_date'),
-        Index('idx_feed_stars_price', 'stars', 'price'),
+        Index('idx_feed_hotel_stars_price', 'hotel_stars', 'price'),
     )
 
 engine = create_async_engine(
@@ -281,11 +282,6 @@ async def deactivate_all_user_subscriptions(user_id: int) -> int:
         return result.rowcount
 
 async def save_feed_tours(tours: List[FeedTour]) -> int:
-    """
-    Очищает таблицу feed_tours и вставляет новые записи.
-    Возвращает количество вставленных записей.
-    Работает в транзакции, чтобы избежать частичного обновления.
-    """
     async with AsyncSessionLocal() as session:
         async with session.begin():
             await session.execute(delete(FeedTourORM))
@@ -293,20 +289,23 @@ async def save_feed_tours(tours: List[FeedTour]) -> int:
             for t in tours:
                 orm_obj = FeedTourORM(
                     id=t.id,
-                    departure_city=t.departure_city,
-                    country=t.country,
-                    resort=t.resort,
-                    hotel_name=t.hotel_name,
-                    stars=t.stars,
                     price=t.price,
-                    departure_date=t.departure_date,
                     nights=t.nights,
-                    operator=t.operator,
-                    hotel_preview=t.hotel_preview,
-                    resort_preview=t.resort_preview,
-                    url_country=t.url_country,
-                    url_resort=t.url_resort,
-                    url_hotel=t.url_hotel,
+                    hotel_name=t.hotel_name,
+                    hotel_stars=t.hotel_stars,
+                    country=t.country,
+                    region=t.region,
+                    departure_city=t.departure_city,
+                    departure_date=t.departure_date,
+                    operator_name=t.operator_name,
+                    picture_hotel=t.picture_hotel,
+                    picture_hotel_800x600=t.picture_hotel_800x600,
+                    picture_seo_800x620=t.picture_seo_800x620,
+                    hotel_url=t.hotel_url,
+                    region_url=t.region_url,
+                    country_url=t.country_url,
+                    min_country_price_url=t.min_country_price_url,
+                    min_region_price_url=t.min_region_price_url,
                     feed_updated_at=datetime.now()
                 )
                 orm_objects.append(orm_obj)
@@ -324,17 +323,13 @@ async def search_feed_tours(
     max_price: int,
     limit: int = 20
 ) -> List[FeedTourORM]:
-    """
-    Ищет туры в фиде по заданным критериям.
-    Возвращает отсортированный по цене список (до limit записей).
-    """
     async with AsyncSessionLocal() as session:
         query = select(FeedTourORM).where(
             FeedTourORM.departure_city == departure_city,
             FeedTourORM.country == country,
             FeedTourORM.departure_date.between(date_from, date_to),
             FeedTourORM.nights.between(nights_min, nights_max),
-            FeedTourORM.stars.in_(stars),
+            FeedTourORM.hotel_stars.in_(stars) if stars else True,
             FeedTourORM.price <= max_price
         ).order_by(FeedTourORM.price).limit(limit)
         result = await session.execute(query)
