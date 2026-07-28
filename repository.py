@@ -60,7 +60,8 @@ class SubscriptionORM(Base):
     is_active = Column(Boolean, default=True)
     last_notified_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
-
+    last_price = Column(Integer, nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
     user = relationship("UserORM", back_populates="subscriptions")
     criteria = relationship("SearchCriteriaORM", back_populates="subscriptions")
 
@@ -205,6 +206,15 @@ async def get_subscription_by_id(sub_id: int) -> Optional[SubscriptionORM]:
         )
         return result.scalar_one_or_none()
 
+async def get_subscription_with_criteria(sub_id: int) -> Optional[SubscriptionORM]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(SubscriptionORM)
+            .where(SubscriptionORM.id == sub_id)
+            .options(selectinload(SubscriptionORM.criteria))
+        )
+        return result.scalar_one_or_none()        
+
 async def update_subscription_notified_at(sub_id: int):
     """Обновляет время последнего уведомления для подписки."""
     async with AsyncSessionLocal() as session:
@@ -334,3 +344,12 @@ async def search_feed_tours(
         ).order_by(FeedTourORM.price).limit(limit)
         result = await session.execute(query)
         return result.scalars().all()
+
+async def update_subscription_price(sub_id: int, price: int):
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(SubscriptionORM)
+            .where(SubscriptionORM.id == sub_id)
+            .values(last_price=price, last_checked_at=datetime.now())
+        )
+        await session.commit()

@@ -3,21 +3,15 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from datetime import datetime
 
 from config import settings
 from repository import init_db
-from interfaces import ITravelataClient
-
-if settings.use_mock_api:
-    from mock_travelata import MockTravelataClient as TravelataClient
-else:
-    from travelata_api import TravelataAPIClient as TravelataClient
-
+from travelata_api import TravelataAPIClient
 from price_monitor import PriceMonitor
 from handlers import start_router, search_router, subscribe_router, callback_router
-from handlers.search import set_travelata_client, set_cache
 from cache import cache
-from level_feed_loader import refresh_all_feeds, FEED_URLS
+from level_feed_loader import refresh_all_feeds
 import handlers.state as app_state
 
 logging.basicConfig(
@@ -30,9 +24,11 @@ async def main():
     await init_db()
     logger.info("База данных инициализирована")
 
-    bot = Bot(token=settings.bot_token,
-              default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-              request_timeout=60)
+    bot = Bot(
+        token=settings.bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+        request_timeout=60
+    )
     dp = Dispatcher()
 
     dp.include_router(start_router)
@@ -40,12 +36,8 @@ async def main():
     dp.include_router(subscribe_router)
     dp.include_router(callback_router)
 
-    if settings.use_mock_api:
-        logger.info("Используется МОК-клиент (без реального API)")
-        client = TravelataClient()
-    else:
-        logger.info("Используется реальный клиент Travelata API")
-        client = TravelataClient(settings.travelata_login, settings.travelata_password)
+    client = TravelataAPIClient(settings.travelata_login, settings.travelata_password)
+    logger.info("Клиент Travelata API создан")
 
     try:
         await cache.load(client)
@@ -53,35 +45,23 @@ async def main():
     except Exception as e:
         logger.error(f"Не удалось загрузить справочники: {e}")
 
+    feed_loaded_at = None
     if settings.use_feed:
         logger.info("Загрузка фидов при старте...")
         try:
             await refresh_all_feeds()
             app_state.feeds_loaded = True
+            feed_loaded_at = datetime.now()
             logger.info("Фиды успешно загружены, поиск доступен")
         except Exception as e:
             logger.exception("Ошибка при загрузке фидов")
             app_state.feeds_loaded = False
+    else:
+        logger.warning("Использование фидов отключено в настройках")
 
-        async def periodic_feed_update():
-            await asyncio.sleep(1800)  # ждём 30 минут
-            while True:
-                try:
-                    await refresh_all_feeds()
-                    app_state.feeds_loaded = True
-                    logger.info("Фиды обновлены")
-                except Exception as e:
-                    logger.exception("Ошибка при обновлении фидов")
-                await asyncio.sleep(1800)
-
-        asyncio.create_task(periodic_feed_update())
-        logger.info("Запущено периодическое обновление фидов (каждые 30 минут)")
-
-    set_travelata_client(client)
-    set_cache(cache)
-
-    monitor = PriceMonitor(bot, client)
+    monitor = PriceMonitor(bot, last_feed_update=feed_loaded_at)
     asyncio.create_task(monitor.run())
+    logger.info("Мониторинг цен запущен")
 
     logger.info("Бот запущен, начинаем поллинг...")
     await dp.start_polling(bot)
