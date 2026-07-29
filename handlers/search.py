@@ -325,21 +325,22 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         max_price=data.get('max_price')
     )
 
+    await state.update_data(last_search_criteria=criteria.model_dump())
+
     if settings.use_feed:
         if not app_state.feeds_loaded:
             await callback.message.edit_reply_markup(reply_markup=None)
             await callback.message.answer("⏳ Данные ещё загружаются, подождите пару минут и попробуйте снова.")
-            await state.clear()
+            await state.set_state(None)
             return
 
-        # Используем глобальный cache
         departure_city_name = cache.get_departure_city_name(criteria.departure_city_id)
         country_name = cache.get_country_name(criteria.country_id) if criteria.country_id else None
 
         if not departure_city_name or not country_name:
             await callback.message.edit_reply_markup(reply_markup=None)
             await callback.message.answer("❌ Не удалось определить город вылета или страну.")
-            await state.clear()
+            await state.set_state(None)
             return
 
         search_date = criteria.checkin_date_from
@@ -368,7 +369,7 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
                 "По вашему запросу туров не найдено в фиде.\n"
                 "Попробуйте изменить критерии (даты, звёзды, бюджет)."
             )
-            await state.clear()
+            await state.set_state(None)
             return
 
         tours = []
@@ -409,14 +410,15 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
             await callback.message.answer(text, reply_markup=keyboard)
         else:
             await callback.message.answer(text)
-        await state.clear()
+
+        await state.set_state(None)
         return
 
     client = _travelata_client
     if client is None:
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer("❌ Ошибка: клиент API не инициализирован. Попробуйте позже.")
-        await state.clear()
+        await state.set_state(None)
         return
 
     try:
@@ -435,7 +437,7 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer(f"❌ Ошибка при поиске: {e}")
-        await state.clear()
+        await state.set_state(None)
         return
 
     if criteria.max_price is not None:
@@ -447,7 +449,7 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
             "По вашему запросу туров не найдено.\n"
             "Попробуйте изменить критерии (например, расширить даты или увеличить бюджет)."
         )
-        await state.clear()
+        await state.set_state(None)
         return
 
     ranked_tours = rank_tours(tours, criteria)
@@ -465,7 +467,8 @@ async def confirm_search(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(text, reply_markup=keyboard)
     else:
         await callback.message.answer(text)
-    await state.clear()
+
+    await state.set_state(None)
 
 def format_tours_message(ranked: List[Dict[str, Any]], criteria_id: Optional[int], criteria: SearchCriteria) -> tuple[str, Optional[InlineKeyboardMarkup]]:
     if not ranked:

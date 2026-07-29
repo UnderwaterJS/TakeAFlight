@@ -334,6 +334,9 @@ async def search_feed_tours(
     limit: int = 20
 ) -> List[FeedTourORM]:
     async with AsyncSessionLocal() as session:
+        logger.info(f"Поиск по фидам: city={departure_city}, country={country}, "
+                    f"date_from={date_from}, date_to={date_to}, nights={nights_min}-{nights_max}, "
+                    f"stars={stars}, max_price={max_price}, limit={limit}")
         query = select(FeedTourORM).where(
             FeedTourORM.departure_city == departure_city,
             FeedTourORM.country == country,
@@ -343,7 +346,9 @@ async def search_feed_tours(
             FeedTourORM.price <= max_price
         ).order_by(FeedTourORM.price).limit(limit)
         result = await session.execute(query)
-        return result.scalars().all()
+        tours = result.scalars().all()
+        logger.info(f"Найдено {len(tours)} туров")
+        return tours
 
 async def update_subscription_price(sub_id: int, price: int):
     async with AsyncSessionLocal() as session:
@@ -353,3 +358,13 @@ async def update_subscription_price(sub_id: int, price: int):
             .values(last_price=price, last_checked_at=datetime.now())
         )
         await session.commit()
+
+async def get_user_active_subscriptions(user_id: int) -> List[SubscriptionORM]:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(SubscriptionORM)
+            .where(SubscriptionORM.user_id == user_id, SubscriptionORM.is_active == True)
+            .options(selectinload(SubscriptionORM.criteria))
+            .order_by(SubscriptionORM.created_at.desc())
+        )
+        return result.scalars().all()
