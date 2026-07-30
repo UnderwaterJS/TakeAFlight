@@ -75,8 +75,8 @@ class PriceMonitor:
             return
 
         stars = criteria.hotel_categories if criteria.hotel_categories else []
-        date_from = criteria.checkin_date_from.date()
-        date_to = criteria.checkin_date_to.date()
+        date_from = criteria.checkin_date_from
+        date_to = criteria.checkin_date_to
 
         tours = await search_feed_tours(
             departure_city=departure_city_name,

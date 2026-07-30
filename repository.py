@@ -337,6 +337,7 @@ async def search_feed_tours(
         logger.info(f"Поиск по фидам: city={departure_city}, country={country}, "
                     f"date_from={date_from}, date_to={date_to}, nights={nights_min}-{nights_max}, "
                     f"stars={stars}, max_price={max_price}, limit={limit}")
+        
         query = select(FeedTourORM).where(
             FeedTourORM.departure_city == departure_city,
             FeedTourORM.country == country,
@@ -348,6 +349,32 @@ async def search_feed_tours(
         result = await session.execute(query)
         tours = result.scalars().all()
         logger.info(f"Найдено {len(tours)} туров")
+        
+        if not tours:
+            logger.info(f"Диагностика: поиск туров для city={departure_city}, country={country} без ограничений по датам и ночам")
+            diag_query = select(FeedTourORM).where(
+                FeedTourORM.departure_city == departure_city,
+                FeedTourORM.country == country,
+                FeedTourORM.price <= max_price
+            ).limit(10)
+            diag_result = await session.execute(diag_query)
+            diag_tours = diag_result.scalars().all()
+            if diag_tours:
+                logger.info(f"Найдено {len(diag_tours)} туров для пары (город, страна). Примеры:")
+                for t in diag_tours[:3]:
+                    logger.info(f"  - id={t.id}, date={t.departure_date}, nights={t.nights}, stars={t.hotel_stars}, price={t.price}")
+            else:
+                logger.warning(f"Вообще нет туров для city={departure_city}, country={country} (с ценой <= {max_price})")
+                
+                total_query = select(FeedTourORM).where(FeedTourORM.departure_city == departure_city).limit(5)
+                total_result = await session.execute(total_query)
+                total_tours = total_result.scalars().all()
+                if total_tours:
+                    logger.info(f"Есть туры для города {departure_city} (примеры):")
+                    for t in total_tours[:3]:
+                        logger.info(f"  - id={t.id}, country={t.country}, date={t.departure_date}, nights={t.nights}")
+                else:
+                    logger.warning(f"В БД нет ни одного тура для города {departure_city}")
         return tours
 
 async def update_subscription_price(sub_id: int, price: int):

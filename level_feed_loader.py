@@ -59,7 +59,7 @@ async def load_single_feed(url: str, session: aiohttp.ClientSession) -> List[Fee
         async with session.get(url) as response:
             response.raise_for_status()
             raw_data = await response.text()
-            root = ET.fromstring(raw_data)   # парсим XML
+            root = ET.fromstring(raw_data)
             shop = root.find('shop')
             if shop is None:
                 logger.error(f"Нет shop в {url}")
@@ -74,12 +74,12 @@ async def load_single_feed(url: str, session: aiohttp.ClientSession) -> List[Fee
                     offer_id = offer.get('id', '')
                     if not offer_id:
                         continue
+
                     def get_text(tag, default=''):
                         elem = offer.find(tag)
-                        return elem.text if elem is not None else default
+                        return elem.text.strip() if elem is not None and elem.text else default
 
                     price = int(get_text('price', '0'))
-                    adults = int(get_text('adults', '2'))
                     nights = int(get_text('days', '7'))
                     hotel_name = get_text('name')
                     stars_raw = get_text('hotel_stars')
@@ -125,7 +125,21 @@ async def load_single_feed(url: str, session: aiohttp.ClientSession) -> List[Fee
                 except Exception as e:
                     logger.error(f"Ошибка парсинга оффера {offer.get('id')}: {e}")
                     continue
-            logger.info(f"Загружено {len(tours)} туров из {url}")
+
+            if tours:
+                logger.info(f"Примеры загруженных туров из {url}:")
+                for t in tours[:3]:
+                    logger.info(f"  id={t.id}, country={t.country}, city={t.departure_city}, "
+                                f"date={t.departure_date}, nights={t.nights}, "
+                                f"stars={t.hotel_stars}, price={t.price}")
+                from collections import Counter
+                country_counts = Counter(t.country for t in tours)
+                top_countries = country_counts.most_common(5)
+                logger.info(f"Топ-5 стран в фиде: {', '.join(f'{c}: {cnt}' for c, cnt in top_countries)}")
+            else:
+                logger.warning(f"Не загружено ни одного тура из {url}")
+
+            logger.info(f"Всего загружено {len(tours)} туров из {url}")
             return tours
     except ET.ParseError as e:
         logger.error(f"Ошибка парсинга XML в {url}: {e}")
