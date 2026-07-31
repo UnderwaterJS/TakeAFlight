@@ -121,7 +121,7 @@ class PriceMonitor:
             f"🔔 Цена снизилась!\n"
             f"📍 {cache.get_country_name(criteria.country_id) if criteria.country_id else 'Любая'}, "
             f"вылет из {cache.get_departure_city_name(criteria.departure_city_id) if criteria.departure_city_id else 'Любой'}\n"
-            f"📅 {criteria.checkin_date_from.date()} – {criteria.checkin_date_to.date()}\n"
+            f"📅 {criteria.checkin_date_from} – {criteria.checkin_date_to}\n"
             f"🏨 {tour.hotel_name} ({tour.hotel_stars}★)\n"
             f"💰 Было: {old_price:,} ₽ → Стало: {new_price:,} ₽\n"
             f"⬇️ Снижение на {((old_price - new_price) / old_price * 100):.1f}%\n"

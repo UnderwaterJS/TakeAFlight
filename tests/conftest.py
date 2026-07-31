@@ -2,10 +2,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from repository import FeedTourORM, UserORM, SearchCriteriaORM
+from repository import Base
 import pytest
 from datetime import date
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from repository import Base
 from models import Country, DepartureCity, FeedTour
 from cache import DirectoryCache
 
